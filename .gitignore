@@ -1,0 +1,11 @@
+game/
+__pycache__/
+Exported/
+Extracted/
+*.xlsx
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+*.bz2

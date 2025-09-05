@@ -1,0 +1,10 @@
+
+exclude_subs = [
+    0x63F0E8,
+    0x63CDCF,
+    0x6494cc,
+    0x649a95,
+]
+
+PLOT_MAPPINGS_ADDR = 0x421D30
+PLAY_DIALOG_ADDR = 0x41E530
