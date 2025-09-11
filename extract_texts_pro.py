@@ -1,7 +1,6 @@
 from ida_domain import Database
-from ida_domain.operands import OperandType
 from tqdm import tqdm
-from ida_domain.base import InvalidEAError
+import msgpack
 from constants import *
 from parser import get_event_mappings
 
@@ -16,8 +15,13 @@ def extract(db_path):
         event_mappings = get_event_mappings(db.functions.get_pseudocode(mappings))
         print(f'✓ gathered {len(event_mappings)} event metadata')
 
-        for mapping in event_mappings[:]:
+        events = []
+        for mapping in tqdm(event_mappings[:], desc='Processing events'):
             mapping.get_instructions(db)
+            events.append(mapping.to_dict())
+
+        with open('events.msgpack', 'wb') as f:
+            f.write(msgpack.packb(events))
 
     tqdm.write('✓ Database closed')
 

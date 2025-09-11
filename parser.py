@@ -8,18 +8,20 @@ import math
 class EventMapping:
     def __init__(self, flag0: int, evId: int, flag1: int, voiceKey: str, evFunc: str, valueName: str, address: int, pos: int):
         self.flag0 = flag0
-        self.evId = evId
+        self.evId = int(evId) + 1
         self.flag1 = flag1
-        self.voiceKey = voiceKey
-        self.valueName = valueName
+        self.voiceKey = str(voiceKey).replace('(int)', '')
+        self.valueName = str(valueName).replace('(int)', '')
         self.evFunc = evFunc
         self.address = address
         self.pos = pos
         self.instructions = []
+        self.return_values = []
+        self.has_choices = False
     
     def get_instructions(self, db):
         if self.evFunc in ['0', 0]: return
-        print(f'getting instructions for {self.evFunc}...')
+        tqdm.write(f'getting instructions for {self.evFunc}...')
         
         # Or get the raw data for further processing
         self.extract_function_calls(db)
@@ -34,18 +36,15 @@ class EventMapping:
         try:
             func = db.functions.get_function_by_name(func_name)
             if not func:
-                print(f"Function {func_name} not found")
+                tqdm.write(f"Function {func_name} not found")
                 return []
             
             if func.start_ea in exclude_subs or func.start_ea > 0x64c800:
-                print(f"Function {func_name} is in exclude_subs or > 0x64c800")
+                tqdm.write(f"Function {func_name} is in exclude_subs or > 0x64c800")
                 return []
 
             instructions = list(db.functions.get_instructions(func))
-            function_calls = []
 
-            current_line_index = 0
-            has_choices = False
             for i in range(len(instructions)):
                 inst = instructions[i]
                 
@@ -64,6 +63,10 @@ class EventMapping:
                         if func_addr in [PLAY_DIALOG_ADDR, PLAY_BGM_ADDR, PLAY_SE_ADDR, SHOW_CG_ADDR,
                         GET_TICK_COUNT_ADDR]:
                             params[0] = self._get_string_data(db, params[0])
+                            if func_addr == PLAY_DIALOG_ADDR and len(params) >= 3:
+                                params[2] = (params[2] & 0xFF)
+                                if params[2] > 0x7F:
+                                    params[2] = params[2] - 0x100
                         
                         elif func_addr in [SET_BG_IMG_ADDR, SET_CHARA_IMG_ADDR]:
                             params[0] = self._get_string_data(db, params[0])
@@ -81,36 +84,42 @@ class EventMapping:
                     
                         elif func_addr == SHOW_DECISION_ADDR:
                             params = [self._get_string_data(db, param) for param in params]
-                            print('Decision branch founded at: ' + str(current_line_index))
-                            print('Decisions:', params)
+                            tqdm.write(f'Decision branch founded at: {current_line_index}')
+                            tqdm.write(f'Decisions: {params}')
                             ret = self._get_choices_return(db, instructions, i)
-                            if func_name == 'sub_635D52':
-                                ret = [501, 569, 639]
-                            print('Choices return:', ret)
-                            has_choices = True
+                            tqdm.write(f'Choices return: {ret}')
+                            self.return_values = ret
+                            self.has_choices = True
                         else:
                             params = [self._get_string_data(db, param) for param in params]
-                            print(f'warning: unknown function: {f_name}: {params}')
+                            tqdm.write(f'warning: unknown function: {f_name}: {params}')
+
+                        self.instructions.append({'name': f_name, 'params': params})
             
-            if not has_choices:
+            if not self.has_choices:
                 retn = self._get_direct_return(db, instructions)
-                print('Direct return:', retn)
-            
-            return function_calls
+                tqdm.write(f'Direct return: {retn}')
+                self.return_values = [retn]
             
         except Exception as e:
-            print(f"Error extracting function calls: {e}")
+            tqdm.write(f"Error extracting function calls: {e}")
             return []
-    
+
+    def to_dict(self):
+        d = self.__dict__
+        del d['evFunc']
+        del d['valueName']
+        return d
+
     def _extract_line_parameter(self, db, instructions, call_index):
         inst = db.instructions.get_operand(instructions[call_index-2], 0)
         if inst.type != OperandType.IMMEDIATE:
-            print("--------------------------------")
-            print(f"get line parameter error: {inst.type} is not an immediate value")
+            tqdm.write("--------------------------------")
+            tqdm.write(f"get line parameter error: {inst.type} is not an immediate value")
             disasm = db.instructions.get_disassembly(inst)
-            print(disasm)
-            print(db.instructions.get_operands(inst))
-            print("--------------------------------")
+            tqdm.write(disasm)
+            tqdm.write(db.instructions.get_operands(inst))
+            tqdm.write("--------------------------------")
             return None
         return inst.get_value()
 
@@ -123,10 +132,10 @@ class EventMapping:
                 has_push = True
                 break
         if not has_push:
-            print("--------------------------------")
-            print(f"extract parameters error: no push instruction before")
-            print(instructions[call_index])
-            print("--------------------------------")
+            tqdm.write("--------------------------------")
+            tqdm.write(f"extract parameters error: no push instruction before")
+            tqdm.write(instructions[call_index])
+            tqdm.write("--------------------------------")
             return None
         params = []
         for i in range(i, i - 20, -1):
@@ -163,7 +172,7 @@ class EventMapping:
                 ptr += 1
             return bytes(data).decode('shift-jis', errors='replace')
         except Exception as e:
-            print(f"Error getting string data: {e}")
+            tqdm.write(f"Error getting string data: {e}")
             return addr
 
     def _get_choices_return(self, db, instructions, call_index):
@@ -220,30 +229,3 @@ def get_event_mappings(pseudocode: List[str]):
         event_mappings.append(event_mapping)
     
     return event_mappings
-
-def extract_dialog_text(db, instructions, j):
-    setTextInst = instructions[j-2]
-    textOpr = db.instructions.get_operand(setTextInst, 0)
-    if textOpr is None: 
-        tqdm.write("Error: textOpr is None")
-        return None
-    if textOpr.type != OperandType.IMMEDIATE:
-        tqdm.write("Error: textOpr is not an immediate operand")
-        return None
-
-    textAddr = textOpr.get_value()
-    if not db.is_valid_ea(textAddr):
-        tqdm.write("Error: textOpr is not a valid address")
-        return None
-    data = []
-    ptr = textAddr
-    for i in range(1024):
-        byte_val = db.bytes.get_byte_at(ptr)
-        if byte_val == 0:  # Null terminator
-            break
-        data.append(byte_val)
-        ptr += 1
-    content = bytes(data).decode('shift-jis', errors='replace')
-    
-    # Handle empty line characters and clean content
-    return content.strip()
