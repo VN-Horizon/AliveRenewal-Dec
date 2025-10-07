@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package event_mapping;
+
+
+enum InstructionType {
+  PLAY_DIALOG_ADDR = 0;
+  SHOW_DECISION_ADDR = 1;
+  PLAY_BGM_ADDR = 2;
+  PLAY_SE_ADDR = 3;
+  SET_BG_IMG_ADDR = 4;
+  SET_CHARA_IMG_ADDR = 5;
+  SLEEP_OR_FADE_ADDR = 6;
+  TRANSITION_TO_GRAPHICS_ADDR = 7;
+  TRANSITION_TO_GRAPHICS_FADE_ADDR = 8;
+  SHOW_CG_ADDR = 9;
+  FADE_SYSTEM_TO_BLACK_ADDR = 10;
+  SET_GRAPHICS_STATE_ADDR = 11;
+  TOGGLE_GRAPHICS_FLAG_ADDR = 12;
+  SHAKE_SCREEN_ADDR = 13;
+  TOGGLE_STAFF_STATE = 14;
+  SHOW_STAFF_A_ADDR = 15;
+  SHOW_STAFF_B_ADDR = 16;
+}
+
+
+message Instruction {
+  InstructionType type = 1;
+  repeated int32 params = 2;
+  repeated string string_params=3; // ['s{strin_index}', ...] or ['{int_flag}', ...]
+}
+
+
+message EventMapping {
+  int32 evId = 1;
+  bool flag1 = 2;
+  string evFunc = 3;
+  repeated Instruction instructions = 4;
+  repeated int32 return_values = 5;
+  bool has_choices = 6;
+}
+
+
+message EventMappings {
+  repeated string text_pool = 1;
+  repeated EventMapping events = 2;
+}
+

@@ -5,16 +5,38 @@ from constants import *
 from typing import List
 import math
 
+string_pool = []
+
+addresses = [
+    PLAY_DIALOG_ADDR,
+    SHOW_DECISION_ADDR,
+    PLAY_BGM_ADDR,
+    PLAY_SE_ADDR,
+    SET_BG_IMG_ADDR,
+    SET_CHARA_IMG_ADDR,
+    SLEEP_OR_FADE_ADDR,
+    TRANSITION_TO_GRAPHICS_ADDR,
+    TRANSITION_TO_GRAPHICS_FADE_ADDR,
+    SHOW_CG_ADDR,
+    FADE_SYSTEM_TO_BLACK_ADDR,
+    SET_GRAPHICS_STATE_ADDR,
+    TOGGLE_GRAPHICS_FLAG_ADDR,
+    SHAKE_SCREEN_ADDR,
+    TOGGLE_STAFF_STATE,
+    SHOW_STAFF_A_ADDR,
+    SHOW_STAFF_B_ADDR,
+]
+
 class EventMapping:
     def __init__(self, flag0: int, evId: int, flag1: int, voiceKey: str, evFunc: str, valueName: str, address: int, pos: int):
-        self.flag0 = flag0
+        self.flag0 = int(flag0)
         self.evId = int(evId) + 1
-        self.flag1 = flag1
+        self.flag1 = int(flag1)
         self.voiceKey = str(voiceKey).replace('(int)', '')
         self.valueName = str(valueName).replace('(int)', '')
-        self.evFunc = evFunc
-        self.address = address
-        self.pos = pos
+        self.evFunc = str(evFunc).replace('(int)', '')
+        self.address = int(address)
+        self.pos = int(pos)
         self.instructions = []
         self.return_values = []
         self.has_choices = False
@@ -59,31 +81,42 @@ class EventMapping:
                         if calls is not None: current_line_index = calls
                     else:
                         params = self._extract_parameters(db, instructions, i)
+                        string_params = []
 
                         if func_addr in [PLAY_DIALOG_ADDR, PLAY_BGM_ADDR, PLAY_SE_ADDR, SHOW_CG_ADDR,
                         GET_TICK_COUNT_ADDR]:
-                            params[0] = self._get_string_data(db, params[0])
-                            if func_addr == PLAY_DIALOG_ADDR and len(params) >= 3:
-                                params[2] = (params[2] & 0xFF)
-                                if params[2] > 0x7F:
-                                    params[2] = params[2] - 0x100
+                            if func_addr == PLAY_DIALOG_ADDR:
+                                params = [params[0], params[4]]
+                            elif func_addr == PLAY_BGM_ADDR:
+                                params = [params[0]]
+                            elif func_addr == PLAY_SE_ADDR:
+                                params = [params[0]]
+                            elif func_addr == SHOW_CG_ADDR:
+                                params = [params[0], params[1], params[2], params[3]]
+                            string_params.append(self._get_string_data(db, params.pop(0)))
                         
                         elif func_addr in [SET_BG_IMG_ADDR, SET_CHARA_IMG_ADDR]:
-                            params[0] = self._get_string_data(db, params[0])
-                            params[1] = self._get_string_data(db, params[1])
+                            string_params.append(self._get_string_data(db, params.pop(0)))
+                            string_params.append(self._get_string_data(db, params.pop(0)))
+                            params = [params[0], params[1]]
                         
                         elif func_addr in [TRANSITION_TO_GRAPHICS_ADDR, TRANSITION_TO_GRAPHICS_FADE_ADDR]:
-                            params[0] = self._get_string_data(db, params[0])
-                            params[1] = self._get_string_data(db, params[1])
-                            params[2] = self._get_string_data(db, params[2])
-                            params[3] = self._get_string_data(db, params[3])
+                            params.pop(-1)
+                            params.pop(-1)
+                            string_params.append(self._get_string_data(db, params.pop(0)))
+                            string_params.append(self._get_string_data(db, params.pop(0)))
+                            string_params.append(self._get_string_data(db, params.pop(0)))
+                            string_params.append(self._get_string_data(db, params.pop(0)))
                             
                         elif func_addr in [SLEEP_OR_FADE_ADDR, FADE_SYSTEM_TO_BLACK_ADDR, 
-                        SET_GRAPHICS_STATE_ADDR, TOGGLE_GRAPHICS_FLAG_ADDR, SHAKE_SCREEN_ADDR,
+                        SHAKE_SCREEN_ADDR,
                         TOGGLE_STAFF_STATE, SHOW_STAFF_A_ADDR, SHOW_STAFF_B_ADDR]: pass
+
+                        elif func_addr in [SET_GRAPHICS_STATE_ADDR, TOGGLE_GRAPHICS_FLAG_ADDR]:
+                            params = []
                     
                         elif func_addr == SHOW_DECISION_ADDR:
-                            params = [self._get_string_data(db, param) for param in params]
+                            string_params = [self._get_string_data(db, params.pop(0)) for i in params]
                             tqdm.write(f'Decision branch founded at: {current_line_index}')
                             tqdm.write(f'Decisions: {params}')
                             ret = self._get_choices_return(db, instructions, i)
@@ -91,10 +124,10 @@ class EventMapping:
                             self.return_values = ret
                             self.has_choices = True
                         else:
-                            params = [self._get_string_data(db, param) for param in params]
+                            string_params = [self._get_string_data(db, params.pop(0)) for i in params]
                             tqdm.write(f'warning: unknown function: {f_name}: {params}')
 
-                        self.instructions.append({'name': f_name, 'params': params})
+                        self.instructions.append({'name': f_name, 'params': params, 'string_params': string_params, 'type': addresses.index(func_addr)})
             
             if not self.has_choices:
                 retn = self._get_direct_return(db, instructions)
@@ -107,9 +140,37 @@ class EventMapping:
 
     def to_dict(self):
         d = self.__dict__
-        del d['evFunc']
-        del d['valueName']
+        if 'flag0' in d: del d['flag0']
+        if 'voiceKey' in d: del d['voiceKey']
+        if 'valueName' in d: del d['valueName']
+        if 'pos' in d: del d['pos']
+        if 'address' in d: del d['address']
+        for i in d['instructions']:
+            if 'name' in i: del i['name']
         return d
+    
+    def to_protobuf(self):
+        """Convert EventMapping to protobuf format"""
+        from event_mapping_pb2 import EventMapping as PBEventMapping, Instruction
+        
+        pb_mapping = PBEventMapping()
+        pb_mapping.evId = self.evId
+        pb_mapping.flag1 = self.flag1 == 1
+        pb_mapping.evFunc = self.evFunc
+        pb_mapping.has_choices = self.has_choices
+        
+        # Convert instructions
+        for inst in self.instructions:
+            pb_instruction = Instruction()
+            pb_instruction.type = inst['type']
+            pb_instruction.params.extend(inst['params'])
+            pb_instruction.string_params.extend(inst['string_params'])
+            pb_mapping.instructions.append(pb_instruction)
+        
+        # Convert return values
+        pb_mapping.return_values.extend(self.return_values)
+        
+        return pb_mapping
 
     def _extract_line_parameter(self, db, instructions, call_index):
         inst = db.instructions.get_operand(instructions[call_index-2], 0)
@@ -161,7 +222,7 @@ class EventMapping:
 
     def _get_string_data(self, db, addr):
         if addr < DATA_BOUNDARY[0] or addr > DATA_BOUNDARY[1]:
-            return addr
+            return str(addr)
         data = []
         ptr = addr
         try:
@@ -170,10 +231,13 @@ class EventMapping:
                 if byte_val == 0: break
                 data.append(byte_val)
                 ptr += 1
-            return bytes(data).decode('shift-jis', errors='replace')
+            string = bytes(data).decode('shift-jis', errors='replace')
+            if string not in string_pool:
+                string_pool.append(string)
+            return f'${string_pool.index(string)}'
         except Exception as e:
             tqdm.write(f"Error getting string data: {e}")
-            return addr
+            return str(addr)
 
     def _get_choices_return(self, db, instructions, call_index):
         ret = []

@@ -9,3 +9,4 @@ Extracted/
 *.tar
 *.gz
 *.bz2
+play_dialog_dedup.py
