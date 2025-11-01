@@ -10,3 +10,4 @@ Extracted/
 *.gz
 *.bz2
 play_dialog_dedup.py
+*.PSD
