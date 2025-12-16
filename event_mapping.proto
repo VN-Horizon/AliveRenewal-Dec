@@ -38,6 +38,7 @@ message EventMapping {
   repeated Instruction instructions = 4;
   repeated int32 return_values = 5;
   bool has_choices = 6;
+  repeated int32 from_events = 7;
 }
 
 

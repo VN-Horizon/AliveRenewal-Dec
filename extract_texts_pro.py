@@ -1,7 +1,7 @@
 from ida_domain import Database
 from tqdm import tqdm
 import json
-from constants import *
+from alive_constants import *
 from parser import get_event_mappings, string_pool
 from event_mapping_pb2 import EventMappings, EventMapping as PBEventMapping, Instruction
 import msgpack
@@ -19,7 +19,7 @@ def extract(db_path):
         events = []
         for mapping in tqdm(event_mappings[:], desc='Processing events'):
             mapping.get_instructions(db)
-            tqdm.write(f'Fetched Event {mapping.evId} instructions: {len(mapping.instructions)}')
+            # tqdm.write(f'Fetched Event {mapping.evId} instructions: {len(mapping.instructions)}')
             if mapping.evId == 1 and len(mapping.instructions) == 0 and len(mapping.return_values) == 1 and mapping.return_values[0] == 950: continue
             if len(mapping.return_values) == 0: continue
             events.append(mapping)

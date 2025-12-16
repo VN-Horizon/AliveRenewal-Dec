@@ -1,11 +1,12 @@
 from ida_domain.operands import OperandType
 from ida_domain.operands import AccessType
 from tqdm import tqdm
-from constants import *
+from alive_constants import *
 from typing import List
 import math
 
 string_pool = []
+from_map = {}
 
 addresses = [
     PLAY_DIALOG_ADDR,
@@ -40,10 +41,12 @@ class EventMapping:
         self.instructions = []
         self.return_values = []
         self.has_choices = False
+        self.line_counts = {}
+        self.from_events = -1
     
     def get_instructions(self, db):
         if self.evFunc in ['0', 0]: return
-        tqdm.write(f'getting instructions for {self.evFunc}...')
+        # tqdm.write(f'getting instructions for {self.evFunc}...')
         
         # Or get the raw data for further processing
         self.extract_function_calls(db)
@@ -62,7 +65,7 @@ class EventMapping:
                 return []
             
             if func.start_ea in exclude_subs or func.start_ea > 0x64c800:
-                tqdm.write(f"Function {func_name} is in exclude_subs or > 0x64c800")
+                # tqdm.write(f"Function {func_name} is in exclude_subs or > 0x64c800")
                 return []
 
             instructions = list(db.functions.get_instructions(func))
@@ -87,6 +90,17 @@ class EventMapping:
                         GET_TICK_COUNT_ADDR]:
                             if func_addr == PLAY_DIALOG_ADDR:
                                 params = [params[0], params[4]]
+                                raw_string = self._parse_raw_string(db, params[0])
+                                if '「' in raw_string and raw_string.endswith('」') and raw_string.index('「') < 7:
+                                    char_name = raw_string.split('「')[0].replace('・', '').strip()
+                                    self.line_counts[char_name] = self.line_counts.get(char_name, 0) + 1
+                                    # print(self.line_counts)
+                                    if char_name == '祐二':
+                                        params.append(-1)
+                                    else:
+                                        params.append(self.line_counts[char_name])
+                                else:
+                                    params.append(-1)
                             elif func_addr == PLAY_BGM_ADDR:
                                 params = [params[0]]
                             elif func_addr == PLAY_SE_ADDR:
@@ -117,10 +131,13 @@ class EventMapping:
                     
                         elif func_addr == SHOW_DECISION_ADDR:
                             string_params = [self._get_string_data(db, params.pop(0)) for i in params]
-                            tqdm.write(f'Decision branch founded at: {current_line_index}')
-                            tqdm.write(f'Decisions: {params}')
+                            # tqdm.write(f'Decision branch founded at: {current_line_index}')
+                            # tqdm.write(f'Decisions: {params}')
                             ret = self._get_choices_return(db, instructions, i)
-                            tqdm.write(f'Choices return: {ret}')
+                            # tqdm.write(f'Choices return: {ret}')
+                            for r in ret:
+                                if r != 0:
+                                    from_map[r] = from_map.get(r, []) + [self.evId]
                             self.return_values = ret
                             self.has_choices = True
                         else:
@@ -131,7 +148,9 @@ class EventMapping:
             
             if not self.has_choices:
                 retn = self._get_direct_return(db, instructions)
-                tqdm.write(f'Direct return: {retn}')
+                # tqdm.write(f'Direct return: {retn}')
+                if retn == 999: return []
+                from_map[retn] = from_map.get(retn, []) + [self.evId]
                 self.return_values = [retn]
             
         except Exception as e:
@@ -139,12 +158,15 @@ class EventMapping:
             return []
 
     def to_dict(self):
+        if self.evId in from_map.keys():
+            self.from_events = from_map[self.evId]
         d = self.__dict__
         if 'flag0' in d: del d['flag0']
         if 'voiceKey' in d: del d['voiceKey']
         if 'valueName' in d: del d['valueName']
         if 'pos' in d: del d['pos']
         if 'address' in d: del d['address']
+        if 'line_counts' in d: del d['line_counts']
         for i in d['instructions']:
             if 'name' in i: del i['name']
         return d
@@ -158,6 +180,7 @@ class EventMapping:
         pb_mapping.flag1 = self.flag1 == 1
         pb_mapping.evFunc = self.evFunc
         pb_mapping.has_choices = self.has_choices
+        pb_mapping.from_events.extend(self.from_events if isinstance(self.from_events, list) else [])
         
         # Convert instructions
         for inst in self.instructions:
@@ -221,6 +244,17 @@ class EventMapping:
         return None
 
     def _get_string_data(self, db, addr):
+        try:
+            string = self._parse_raw_string(db, addr)
+            if string not in string_pool:
+                string_pool.append(string)
+            return f'${string_pool.index(string)}'
+        except Exception as e:
+            tqdm.write(f"Error getting string data: {e}")
+            return str(addr)
+        
+    def _parse_raw_string(self, db, addr):
+        """Parse raw string from data segment given an address"""
         if addr < DATA_BOUNDARY[0] or addr > DATA_BOUNDARY[1]:
             return str(addr)
         data = []
@@ -232,11 +266,9 @@ class EventMapping:
                 data.append(byte_val)
                 ptr += 1
             string = bytes(data).decode('shift-jis', errors='replace')
-            if string not in string_pool:
-                string_pool.append(string)
-            return f'${string_pool.index(string)}'
+            return string
         except Exception as e:
-            tqdm.write(f"Error getting string data: {e}")
+            tqdm.write(f"Error parsing raw string: {e}")
             return str(addr)
 
     def _get_choices_return(self, db, instructions, call_index):

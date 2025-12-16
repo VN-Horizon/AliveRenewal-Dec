@@ -5,7 +5,7 @@ from ida_domain.base import InvalidEAError
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from parser import extract_dialog_text
-from constants import *
+from alive_constants import *
 import os
 
 existing_lines = []
