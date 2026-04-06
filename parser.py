@@ -125,7 +125,7 @@ class EventMapping:
                             string_params.append(self._get_string_data(db, params.pop(0)))
                             string_params.append(self._get_string_data(db, params.pop(0)))
                             if(func_addr == TRANSITION_TO_GRAPHICS_ADDR):
-                                string_params = [string_params[2], string_params[3], string_params[0], string_params[1]]
+                                string_params = [string_params[2], string_params[3], string_params[1], string_params[0]]
                             
                         elif func_addr in [SLEEP_OR_FADE_ADDR, FADE_SYSTEM_TO_BLACK_ADDR, 
                         SHAKE_SCREEN_ADDR,
