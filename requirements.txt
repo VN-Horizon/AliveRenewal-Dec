@@ -1,4 +1,6 @@
-tqdm>=4.64.0
-ida_domain
-msgpack
-protobuf>=3.20.0
+ida-domain==0.4.0
+idapro==0.0.7
+msgpack==1.1.2
+protobuf==7.34.1
+tqdm==4.67.3
+typing-extensions==4.15.0

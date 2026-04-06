@@ -1,6 +1,12 @@
-from ida_domain import Database
-from tqdm import tqdm
 import json
+import os
+import sys
+
+from ida_domain import Database
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from tqdm import tqdm
 from alive_constants import *
 from parser import get_event_mappings, string_pool
 from event_mapping_pb2 import EventMappings, EventMapping as PBEventMapping, Instruction

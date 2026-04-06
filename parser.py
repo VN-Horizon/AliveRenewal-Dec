@@ -107,7 +107,10 @@ class EventMapping:
                                 params = [params[0]]
                             elif func_addr == SHOW_CG_ADDR:
                                 params = [params[0], params[1], params[2], params[3]]
+                            is_calendar = params[0] == 0x6ce00c
                             string_params.append(self._get_string_data(db, params.pop(0)))
+                            if is_calendar:
+                                string_params.append(self._get_string_data(db, params.pop(0)))
                         
                         elif func_addr in [SET_BG_IMG_ADDR, SET_CHARA_IMG_ADDR]:
                             string_params.append(self._get_string_data(db, params.pop(0)))
@@ -121,6 +124,8 @@ class EventMapping:
                             string_params.append(self._get_string_data(db, params.pop(0)))
                             string_params.append(self._get_string_data(db, params.pop(0)))
                             string_params.append(self._get_string_data(db, params.pop(0)))
+                            if(func_addr == TRANSITION_TO_GRAPHICS_ADDR):
+                                string_params = [string_params[2], string_params[3], string_params[0], string_params[1]]
                             
                         elif func_addr in [SLEEP_OR_FADE_ADDR, FADE_SYSTEM_TO_BLACK_ADDR, 
                         SHAKE_SCREEN_ADDR,

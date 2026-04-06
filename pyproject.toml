@@ -1,0 +1,14 @@
+[project]
+name = "aliverenewal-dec"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "audioop-lts>=0.2.2",
+    "ida-domain>=0.4.0",
+    "msgpack>=1.1.2",
+    "protobuf>=7.34.1",
+    "pydub>=0.25.1",
+    "tqdm>=4.67.3",
+]

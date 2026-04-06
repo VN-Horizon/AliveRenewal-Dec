@@ -1,4 +1,10 @@
+import os
+import sys
+
 from ida_domain import Database
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from ida_domain.operands import OperandType
 from tqdm import tqdm
 from ida_domain.base import InvalidEAError
@@ -6,7 +12,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from parser import extract_dialog_text
 from alive_constants import *
-import os
 
 existing_lines = []
  
