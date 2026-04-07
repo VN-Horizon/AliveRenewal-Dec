@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tqdm import tqdm
 from alive_constants import *
 from parser import get_event_mappings, string_pool
-from event_mapping_pb2 import EventMappings, EventMapping as PBEventMapping, Instruction
+from event_mapping_pb2 import EventMappings, EventMapping as PBEventMapping, ConditionalReturn
 import msgpack
  
 def extract(db_path):
@@ -20,36 +20,56 @@ def extract(db_path):
         print('total instructions: ' + str(len(mappings_instructions)))
         print('fetching event metadata...')
         event_mappings = get_event_mappings(db.functions.get_pseudocode(mappings))
+        event_mappings = [mapping for mapping in event_mappings if mapping.evId <= 500 and mapping.evId not in [400, 0]]
         print(f'✓ gathered {len(event_mappings)} event metadata')
 
         events = []
         for mapping in tqdm(event_mappings[:], desc='Processing events'):
             mapping.get_instructions(db)
             # tqdm.write(f'Fetched Event {mapping.evId} instructions: {len(mapping.instructions)}')
-            if mapping.evId == 1 and len(mapping.instructions) == 0 and len(mapping.return_values) == 1 and mapping.return_values[0] == 950: continue
             if len(mapping.return_values) == 0: continue
             events.append(mapping)
+        
+        # return
 
         print("Got events", len(events))
         events = sorted(events, key=lambda x: x.evId)
 
         # Create protobuf EventMappings container
         event_mappings_pb = EventMappings()
-        event_mappings_pb.text_pool.extend(string_pool)
+        event_mappings_pb.textPool.extend(string_pool)
 
         with open('events.json', 'w', encoding='utf-8') as f:
-            json.dump({'text_pool': string_pool, 'events': [mapping.to_dict() for mapping in events]}, f, ensure_ascii=False)
+            json.dump({'textPool': string_pool, 'events': [mapping.to_dict() for mapping in events]}, f, ensure_ascii=False)
 
         with open('events.indent.json', 'w', encoding='utf-8') as f:
-            json.dump({'text_pool': string_pool, 'events': [mapping.to_dict() for mapping in events]}, f, ensure_ascii=False, indent=4)
+            json.dump({'textPool': string_pool, 'events': [mapping.to_dict() for mapping in events]}, f, ensure_ascii=False, indent=4)
 
         with open('events.msgpack', 'wb') as f:
-            f.write(msgpack.packb({'text_pool': string_pool, 'events': [mapping.to_dict() for mapping in events]}))
+            f.write(msgpack.packb({'textPool': string_pool, 'events': [mapping.to_dict() for mapping in events]}))
         
         for mapping in events:
             # Convert EventMapping to protobuf using the new method
             pb_mapping = mapping.to_protobuf()
             event_mappings_pb.events.append(pb_mapping)
+
+        root = PBEventMapping()
+        root.evId = 512
+        root.flag1 = 0
+        root.evFunc = "(root)"
+        root.hasChoices = False
+
+        root_conditional_return = ConditionalReturn()
+        root_conditional_return.passedEvIds.extend([-4])
+        root_conditional_return.returnValue = 401
+        root.conditionalReturns.append(root_conditional_return)
+        root_conditional_return = ConditionalReturn()
+        root_conditional_return.passedEvIds.extend([-3, -2, -1])
+        root_conditional_return.returnValue = 69
+        root.conditionalReturns.append(root_conditional_return)
+        root_conditional_return = ConditionalReturn()
+        root.returnValues.append(1)
+        event_mappings_pb.events.append(root)
 
         # Save as protobuf binary format
         with open('events.pb', 'wb') as f:

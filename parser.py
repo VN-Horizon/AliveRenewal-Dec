@@ -1,4 +1,5 @@
-from ida_domain.operands import OperandType
+from ida_domain.operands import MemoryOperand, OperandType
+from event_mapping_pb2 import EventMapping as PBEventMapping, Instruction, ConditionalReturn
 from ida_domain.operands import AccessType
 from tqdm import tqdm
 from alive_constants import *
@@ -40,6 +41,7 @@ class EventMapping:
         self.pos = int(pos)
         self.instructions = []
         self.return_values = []
+        self.conditional_returns = []
         self.has_choices = False
         self.line_counts = {}
         self.from_events = -1
@@ -69,89 +71,99 @@ class EventMapping:
                 return []
 
             instructions = list(db.functions.get_instructions(func))
+            last_call_addr = func.start_ea
 
             for i in range(len(instructions)):
                 inst = instructions[i]
                 
                 # Check if this is a call instruction using opcode
-                if db.instructions.is_call_instruction(inst):
-                    func = db.instructions.get_operand(inst, 0)
-                    f_name = func.get_name()
-                    if f_name in exclude_calls: continue
-                    func_addr = func.get_value()
-                    if func_addr == IS_CURRENT_LINE_ADDR:
-                        calls = self._extract_line_parameter(db, instructions, i)
-                        if calls is not None: current_line_index = calls
-                    else:
-                        params = self._extract_parameters(db, instructions, i)
-                        string_params = []
+                if not db.instructions.is_call_instruction(inst):
+                    continue
+                func = db.instructions.get_operand(inst, 0)
+                f_name = func.get_name()
+                if f_name in exclude_calls: continue
+                func_addr = func.get_value()
+                if func_addr == IS_CURRENT_LINE_ADDR:
+                    calls = self._extract_line_parameter(db, instructions, i)
+                    if calls is not None: current_line_index = calls
+                    continue
+                params = self._extract_parameters(db, instructions, i)
+                string_params = []
+                last_call_addr = inst.ea
 
-                        if func_addr in [PLAY_DIALOG_ADDR, PLAY_BGM_ADDR, PLAY_SE_ADDR, SHOW_CG_ADDR,
-                        GET_TICK_COUNT_ADDR]:
-                            if func_addr == PLAY_DIALOG_ADDR:
-                                params = [params[0], params[4]]
-                                raw_string = self._parse_raw_string(db, params[0])
-                                if '「' in raw_string and raw_string.endswith('」') and raw_string.index('「') < 7:
-                                    char_name = raw_string.split('「')[0].replace('・', '').strip()
-                                    self.line_counts[char_name] = self.line_counts.get(char_name, 0) + 1
-                                    # print(self.line_counts)
-                                    if char_name == '祐二':
-                                        params.append(-1)
-                                    else:
-                                        params.append(self.line_counts[char_name])
-                                else:
-                                    params.append(-1)
-                            elif func_addr == PLAY_BGM_ADDR:
-                                params = [params[0]]
-                            elif func_addr == PLAY_SE_ADDR:
-                                params = [params[0]]
-                            elif func_addr == SHOW_CG_ADDR:
-                                params = [params[0], params[1], params[2], params[3]]
-                            is_calendar = params[0] == 0x6ce00c
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            if is_calendar:
-                                string_params.append(self._get_string_data(db, params.pop(0)))
-                        
-                        elif func_addr in [SET_BG_IMG_ADDR, SET_CHARA_IMG_ADDR]:
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            params = [params[0], params[1]]
-                        
-                        elif func_addr in [TRANSITION_TO_GRAPHICS_ADDR, TRANSITION_TO_GRAPHICS_FADE_ADDR]:
-                            params.pop(-1)
-                            params.pop(-1)
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            string_params.append(self._get_string_data(db, params.pop(0)))
-                            if(func_addr == TRANSITION_TO_GRAPHICS_ADDR):
-                                string_params = [string_params[2], string_params[3], string_params[1], string_params[0]]
-                            
-                        elif func_addr in [SLEEP_OR_FADE_ADDR, FADE_SYSTEM_TO_BLACK_ADDR, 
-                        SHAKE_SCREEN_ADDR,
-                        TOGGLE_STAFF_STATE, SHOW_STAFF_A_ADDR, SHOW_STAFF_B_ADDR]: pass
-
-                        elif func_addr in [SET_GRAPHICS_STATE_ADDR, TOGGLE_GRAPHICS_FLAG_ADDR]:
-                            params = []
-                    
-                        elif func_addr == SHOW_DECISION_ADDR:
-                            string_params = [self._get_string_data(db, params.pop(0)) for i in params]
-                            # tqdm.write(f'Decision branch founded at: {current_line_index}')
-                            # tqdm.write(f'Decisions: {params}')
-                            ret = self._get_choices_return(db, instructions, i)
-                            # tqdm.write(f'Choices return: {ret}')
-                            for r in ret:
-                                if r != 0:
-                                    from_map[r] = from_map.get(r, []) + [self.evId]
-                            self.return_values = ret
-                            self.has_choices = True
+                if func_addr in [PLAY_DIALOG_ADDR, PLAY_BGM_ADDR, PLAY_SE_ADDR, SHOW_CG_ADDR,
+                GET_TICK_COUNT_ADDR]:
+                    if func_addr == PLAY_DIALOG_ADDR:
+                        params = [params[0], params[4]]
+                        raw_string = self._parse_raw_string(db, params[0])
+                        if '「' in raw_string and raw_string.endswith('」') and raw_string.index('「') < 7:
+                            char_name = raw_string.split('「')[0].replace('・', '').strip()
+                            self.line_counts[char_name] = self.line_counts.get(char_name, 0) + 1
+                            # print(self.line_counts)
+                            if char_name == '祐二':
+                                params.append(-1)
+                            else:
+                                params.append(self.line_counts[char_name])
                         else:
-                            string_params = [self._get_string_data(db, params.pop(0)) for i in params]
-                            tqdm.write(f'warning: unknown function: {f_name}: {params}')
+                            params.append(-1)
+                    elif func_addr == PLAY_BGM_ADDR:
+                        params = [params[0]]
+                    elif func_addr == PLAY_SE_ADDR:
+                        params = [params[0]]
+                    elif func_addr == SHOW_CG_ADDR:
+                        params = [params[0], params[1], params[2], params[3]]
+                    is_calendar = params[0] == 0x6ce00c
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    if is_calendar:
+                        string_params.append(self._get_string_data(db, params.pop(0)))
+                
+                elif func_addr in [SET_BG_IMG_ADDR, SET_CHARA_IMG_ADDR]:
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    params = [params[0], params[1]]
+                
+                elif func_addr in [TRANSITION_TO_GRAPHICS_ADDR, TRANSITION_TO_GRAPHICS_FADE_ADDR]:
+                    params.pop(-1)
+                    params.pop(-1)
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    string_params.append(self._get_string_data(db, params.pop(0)))
+                    if(func_addr == TRANSITION_TO_GRAPHICS_ADDR):
+                        string_params = [string_params[2], string_params[3], string_params[1], string_params[0]]
+                    
+                elif func_addr in [SLEEP_OR_FADE_ADDR, FADE_SYSTEM_TO_BLACK_ADDR, 
+                SHAKE_SCREEN_ADDR,
+                TOGGLE_STAFF_STATE, SHOW_STAFF_A_ADDR, SHOW_STAFF_B_ADDR]: pass
 
-                        self.instructions.append({'name': f_name, 'params': params, 'string_params': string_params, 'type': addresses.index(func_addr)})
+                elif func_addr in [SET_GRAPHICS_STATE_ADDR, TOGGLE_GRAPHICS_FLAG_ADDR]:
+                    params = []
+            
+                elif func_addr == SHOW_DECISION_ADDR:
+                    string_params = [self._get_string_data(db, params.pop(0)) for _ in params]
+                    # tqdm.write(f'Decision branch founded at: {current_line_index}')
+                    # tqdm.write(f'Decisions: {params}')
+                    ret = self._get_choices_return(db, instructions, i)
+                    # tqdm.write(f'Choices return: {ret}')
+                    for r in ret:
+                        if r != 0:
+                            from_map[r] = from_map.get(r, []) + [self.evId]
+                    self.return_values = ret
+                    self.has_choices = True
+                else:
+                    string_params = [self._get_string_data(db, params.pop(0)) for _ in params]
+                    tqdm.write(f'warning: unknown function: {f_name}: {params}')
+
+                self.instructions.append({'name': f_name, 'params': params, 'string_params': string_params, 'type': addresses.index(func_addr)})
             
             if not self.has_choices:
+                special_returns = self._extract_special_returns(db, instructions, last_call_addr)
+                memory_returns = self._extract_special_returns(db, instructions, last_call_addr, magic_number=0x38f98)
+                memory_returns = [([-i for i in cond], ret) for cond, ret in memory_returns if cond is not None and ret is not None]
+                self.conditional_returns = special_returns + memory_returns
+                for _, ret in special_returns:
+                    if ret is not None and ret != 0:
+                        from_map[ret] = from_map.get(ret, []) + [self.evId]
                 retn = self._get_direct_return(db, instructions)
                 # tqdm.write(f'Direct return: {retn}')
                 if retn == 999: return []
@@ -165,38 +177,60 @@ class EventMapping:
     def to_dict(self):
         if self.evId in from_map.keys():
             self.from_events = from_map[self.evId]
-        d = self.__dict__
-        if 'flag0' in d: del d['flag0']
-        if 'voiceKey' in d: del d['voiceKey']
-        if 'valueName' in d: del d['valueName']
-        if 'pos' in d: del d['pos']
-        if 'address' in d: del d['address']
-        if 'line_counts' in d: del d['line_counts']
-        for i in d['instructions']:
-            if 'name' in i: del i['name']
-        return d
+        return {
+            'evId': self.evId,
+            'flag1': self.flag1,
+            'evFunc': self.evFunc,
+            'instructions': [
+                {
+                    'type': i['type'],
+                    'params': i['params'],
+                    'stringParams': i['string_params'],
+                }
+                for i in self.instructions
+            ],
+            'conditionalReturns': [
+                {
+                    'passedEvIds': cond,
+                    'returnValue': ret,
+                }
+                for cond, ret in self.conditional_returns
+                if cond is not None and ret is not None
+            ],
+            'returnValues': self.return_values,
+            'hasChoices': self.has_choices,
+            'fromEvents': self.from_events if isinstance(self.from_events, list) else [],
+        }
     
     def to_protobuf(self):
         """Convert EventMapping to protobuf format"""
-        from event_mapping_pb2 import EventMapping as PBEventMapping, Instruction
         
         pb_mapping = PBEventMapping()
         pb_mapping.evId = self.evId
         pb_mapping.flag1 = self.flag1 == 1
         pb_mapping.evFunc = self.evFunc
-        pb_mapping.has_choices = self.has_choices
-        pb_mapping.from_events.extend(self.from_events if isinstance(self.from_events, list) else [])
+        pb_mapping.hasChoices = self.has_choices
+        pb_mapping.fromEvents.extend(self.from_events if isinstance(self.from_events, list) else [])
         
         # Convert instructions
         for inst in self.instructions:
             pb_instruction = Instruction()
             pb_instruction.type = inst['type']
             pb_instruction.params.extend(inst['params'])
-            pb_instruction.string_params.extend(inst['string_params'])
+            pb_instruction.stringParams.extend(inst['string_params'])
             pb_mapping.instructions.append(pb_instruction)
+
+        # Convert conditional returns from special return pairs: (cond, ret).
+        for cond, ret in self.conditional_returns:
+            if cond is None or ret is None:
+                continue
+            pb_conditional_return = ConditionalReturn()
+            pb_conditional_return.passedEvIds.extend(cond if isinstance(cond, list) else [cond])
+            pb_conditional_return.returnValue = ret
+            pb_mapping.conditionalReturns.append(pb_conditional_return)
         
         # Convert return values
-        pb_mapping.return_values.extend(self.return_values)
+        pb_mapping.returnValues.extend(self.return_values)
         
         return pb_mapping
 
@@ -234,7 +268,45 @@ class EventMapping:
             if operand.type != OperandType.IMMEDIATE: break
             params.append(operand.get_value())
         return params
-
+    
+    def _extract_special_returns(self, db, instructions, last_call_addr, magic_number=0x57804):
+        if last_call_addr is None:
+            return []
+        params = []
+        for inst in instructions:
+            if inst.ea < last_call_addr or db.instructions.get_mnemonic(inst) != 'mov': continue  
+            operands = db.instructions.get_operands(inst)
+            if len(operands) != 2 or not isinstance(operands[1], MemoryOperand) or \
+                not isinstance(operands[1].get_value(), dict) or operands[1].get_value()['displacement'] != magic_number: continue
+            tqdm.write(f'found magic number at {hex(inst.ea)},', end=' ')
+            ea1 = ea2 = inst.ea
+            cond, ret, i = None, None, 0
+            while cond is None and ret is None and i < 18:
+                i += 1
+                prev_inst = db.instructions.get_previous(ea1)
+                if prev_inst is None: break
+                if db.instructions.get_mnemonic(prev_inst) == 'push':  
+                    cond = db.instructions.get_operands(prev_inst)[0].get_value()
+                if db.instructions.get_mnemonic(prev_inst) == 'mov':
+                    operands = db.instructions.get_operands(prev_inst)
+                    if operands[0].type == OperandType.REGISTER and operands[0].get_register_name() == 'eax' and operands[0].get_access_type() == AccessType.WRITE:
+                        cond = operands[1].get_value()
+                        tqdm.write(f'found eax mov for condition')
+                ea1 = prev_inst.ea  
+                next_inst = db.instructions.get_at(db.bytes.get_next_head(ea2))  
+                if next_inst is None: break
+                if db.instructions.get_mnemonic(next_inst) == 'push':  
+                    ret = db.instructions.get_operands(next_inst)[0].get_value()
+                if db.instructions.get_mnemonic(next_inst) == 'mov':
+                    operands = db.instructions.get_operands(next_inst)
+                    if operands[0].type == OperandType.REGISTER and operands[0].get_register_name() == 'eax' and operands[0].get_access_type() == AccessType.WRITE:
+                        ret = operands[1].get_value()
+                        tqdm.write(f'found eax mov for return')
+                ea2 = next_inst.ea 
+            tqdm.write(f'condition: {cond}, return: {ret}')
+            params.append(([cond], ret))
+        return params
+        
     def _get_direct_return(self, db, instructions):
         for i in range(-1, -8, -1):
             inst = instructions[i]
