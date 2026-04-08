@@ -20,7 +20,7 @@ def extract(db_path):
         print('total instructions: ' + str(len(mappings_instructions)))
         print('fetching event metadata...')
         event_mappings = get_event_mappings(db.functions.get_pseudocode(mappings))
-        event_mappings = [mapping for mapping in event_mappings if mapping.evId <= 500 and mapping.evId not in [400, 0]]
+        event_mappings = [mapping for mapping in event_mappings if mapping.evId <= 500 and mapping.evId not in [400, 0] and mapping.evFunc != "sub_431E00"]
         print(f'✓ gathered {len(event_mappings)} event metadata')
 
         events = []
