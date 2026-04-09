@@ -140,7 +140,7 @@ class EventMapping:
                     params = []
             
                 elif func_addr == SHOW_DECISION_ADDR:
-                    string_params = [self._get_string_data(db, param) for param in params]
+                    string_params = [self._get_string_data(db, param) for param in params if param != 0]
                     params = []
                     # tqdm.write(f'Decision branch founded at: {current_line_index}')
                     # tqdm.write(f'Decisions: {params}')
